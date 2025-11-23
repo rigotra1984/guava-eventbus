@@ -52,21 +52,30 @@ public class EventWorker {
             // Extraer el eventId para tracking
             String eventId = extractEventId(realEvent);
 
-            // Preparar el tracking de ejecución
-            exceptionHandler.prepareExecution(eventId);
+            // Preparar el tracking de ejecución con la clase del evento
+            exceptionHandler.prepareExecution(eventId, realEvent.getClass());
 
             // Publicar en el EventBus
             eventBus.post(realEvent);
 
-            // Esperar a que el listener termine de procesar (máximo 5 segundos)
-            boolean completed = exceptionHandler.awaitExecution(eventId, 5, TimeUnit.SECONDS);
+            // Obtener el timeout configurado para este evento
+            long timeoutSeconds = exceptionHandler.getTimeoutForEvent(eventId);
+            
+            // Esperar a que el listener termine de procesar
+            boolean awaitResult = exceptionHandler.awaitExecution(eventId, timeoutSeconds, TimeUnit.SECONDS);
 
-            if (!completed) {
-                // Timeout: asumir éxito para listeners sin @RetryableSubscribe
-                System.out.println("Event " + eventId + " processing timeout, assuming success");
-                repo.markAsSuccess(ev.getId());
-                exceptionHandler.clearResult(eventId);
-                return;
+            if (!awaitResult) {
+                // Timeout: verificar si realmente se completó la ejecución
+                boolean executionCompleted = exceptionHandler.wasExecutionCompleted(eventId);
+                
+                if (!executionCompleted) {
+                    // La ejecución no se completó (posiblemente el servidor se detuvo)
+                    // NO marcamos como éxito, dejamos el evento como PENDING para reintento
+                    System.err.println("Event " + eventId + " execution did not complete (possible server shutdown). Will retry.");
+                    exceptionHandler.clearResult(eventId);
+                    retryWithBackoff(ev);
+                    return;
+                }
             }
 
             // Verificar el resultado de la ejecución
@@ -81,7 +90,9 @@ public class EventWorker {
                 exceptionHandler.clearResult(eventId);
                 retryWithBackoff(ev);
             } else {
-                // Sin resultado registrado: asumir éxito (no debería llegar aquí)
+                // Sin resultado registrado pero el latch se completó: asumir éxito
+                // (para listeners sin @RetryableSubscribe)
+                System.out.println("Event " + eventId + " completed without explicit result, assuming success");
                 repo.markAsSuccess(ev.getId());
                 exceptionHandler.clearResult(eventId);
             }

@@ -22,6 +22,7 @@ public class TrackedEventBus extends EventBus {
     @Override
     public void register(Object listener) {
         delegate.register(listener);
+        exceptionHandler.registerListener(listener);
     }
     
     @Override

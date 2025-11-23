@@ -12,6 +12,8 @@ La anotación `@RetryableSubscribe` permite que los métodos subscriber (marcado
 - ✅ Si el método con `@RetryableSubscribe` se ejecuta sin errores → el evento se marca como **SUCCESS**
 - ❌ Si el método con `@RetryableSubscribe` lanza una excepción → el evento se **reintenta** automáticamente
 - 🔄 Sistema de backoff exponencial para reintentos
+- ⏱️ **Timeout configurable por método** usando el parámetro `timeoutSeconds`
+- 🛡️ **Detección de servidor detenido**: Si el método no completa su ejecución (ej: servidor detenido), el evento se reintenta
 - 📊 Compatible 100% con listeners existentes sin `@RetryableSubscribe`
 - 🎯 **Decisión por método**: cada listener puede elegir su estrategia
 
@@ -24,14 +26,23 @@ El sistema maneja **automáticamente ambos tipos de listeners**:
 ### Escenario 1: Con @RetryableSubscribe (reintentos automáticos)
 ```java
 @Subscribe
-@RetryableSubscribe
+@RetryableSubscribe  // Timeout por defecto: 5 segundos
 public void handlePayment(PaymentEvent event) {
     // Si este método falla, el evento se reintenta
     paymentService.process(event);
 }
+
+@Subscribe
+@RetryableSubscribe(timeoutSeconds = 10)  // Timeout personalizado: 10 segundos
+public void handleLongTask(TaskEvent event) {
+    // Este método tiene 10 segundos para completarse
+    // Si no se completa, el evento se reintenta
+    longRunningService.process(event);
+}
 ```
 - ✅ **Éxito**: Método se ejecuta sin excepciones → evento marcado como SUCCESS
-- ❌ **Fallo**: Método lanza excepción → evento reintentado con backoff exponencial
+- ❌ **Fallo con excepción**: Método lanza excepción → evento reintentado con backoff exponencial
+- ⏱️ **Timeout o servidor detenido**: Método no completa en el tiempo configurado → evento reintentado
 
 ### Escenario 2: Sin @RetryableSubscribe (comportamiento tradicional)
 ```java
@@ -48,6 +59,8 @@ public void logEvent(AnyEvent event) {
 
 | Característica | Con @RetryableSubscribe | Sin @RetryableSubscribe |
 |----------------|------------------------|-------------------------|
+| **Timeout configurable** | ✅ Sí (parámetro `timeoutSeconds`) | ❌ N/A |
+| **Detección de servidor detenido** | ✅ Sí, reintenta el evento | ❌ Marca como SUCCESS |
 | **Si tiene éxito** | ✅ Marca SUCCESS | ✅ Marca SUCCESS |
 | **Si falla** | ❌ Reintenta con backoff | ✅ Marca SUCCESS (ignora error) |
 | **Uso recomendado** | Operaciones críticas | Logging, métricas, notificaciones |

@@ -22,12 +22,17 @@ public class RetryableSubscriberExceptionHandler implements SubscriberExceptionH
     
     private final Map<String, EventExecutionResult> executionResults = new ConcurrentHashMap<>();
     private final Map<String, CountDownLatch> executionLatches = new ConcurrentHashMap<>();
+    private final Map<String, Method> eventSubscriberMethods = new ConcurrentHashMap<>();
+    private final Map<String, Object> registeredListeners = new ConcurrentHashMap<>();
     
     @Override
     public void handleException(Throwable exception, SubscriberExceptionContext context) {
         Method subscriberMethod = context.getSubscriberMethod();
         Object event = context.getEvent();
         String eventId = extractEventId(event);
+        
+        // Almacenar el método del suscriptor para obtener el timeout después
+        eventSubscriberMethods.put(eventId, subscriberMethod);
         
         // Verificar si el método tiene @RetryableSubscribe
         if (subscriberMethod.isAnnotationPresent(RetryableSubscribe.class)) {
@@ -62,11 +67,78 @@ public class RetryableSubscriberExceptionHandler implements SubscriberExceptionH
     }
     
     /**
+     * Registra un listener para poder inspeccionar sus métodos más tarde.
+     * 
+     * @param listener El listener a registrar
+     */
+    public void registerListener(Object listener) {
+        String listenerId = listener.getClass().getName() + "@" + System.identityHashCode(listener);
+        registeredListeners.put(listenerId, listener);
+    }
+    
+    /**
+     * Registra un evento como procesado exitosamente.
+     * Este método debe ser llamado ANTES de publicar el evento para preparar el tracking.
+     * 
+     * @param eventId ID del evento
+     * @param eventClass Clase del evento para buscar el método suscriptor
+     */
+    public void prepareExecution(String eventId, Class<?> eventClass) {
+        executionLatches.put(eventId, new CountDownLatch(1));
+        
+        // Buscar el método suscriptor para este tipo de evento
+        Method subscriberMethod = findSubscriberMethod(eventClass);
+        if (subscriberMethod != null) {
+            eventSubscriberMethods.put(eventId, subscriberMethod);
+        }
+    }
+    
+    /**
      * Registra un evento como procesado exitosamente.
      * Este método debe ser llamado ANTES de publicar el evento para preparar el tracking.
      */
     public void prepareExecution(String eventId) {
         executionLatches.put(eventId, new CountDownLatch(1));
+    }
+    
+    /**
+     * Busca el método suscriptor para un tipo de evento específico.
+     * Busca métodos anotados con @Subscribe que acepten el tipo de evento.
+     * 
+     * @param eventClass Clase del evento
+     * @return El método suscriptor encontrado, o null si no se encuentra
+     */
+    private Method findSubscriberMethod(Class<?> eventClass) {
+        for (Object listener : registeredListeners.values()) {
+            for (Method method : listener.getClass().getDeclaredMethods()) {
+                // Buscar métodos con @Subscribe (de Guava)
+                if (method.isAnnotationPresent(com.google.common.eventbus.Subscribe.class)) {
+                    // Verificar que el método acepte el tipo de evento
+                    Class<?>[] paramTypes = method.getParameterTypes();
+                    if (paramTypes.length == 1 && paramTypes[0].isAssignableFrom(eventClass)) {
+                        return method;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Obtiene el timeout configurado para un evento específico basándose en su método suscriptor.
+     * Si el método tiene @RetryableSubscribe con un timeout configurado, lo devuelve.
+     * De lo contrario, devuelve el timeout por defecto (5 segundos).
+     * 
+     * @param eventId ID del evento
+     * @return Timeout en segundos
+     */
+    public long getTimeoutForEvent(String eventId) {
+        Method method = eventSubscriberMethods.get(eventId);
+        if (method != null && method.isAnnotationPresent(RetryableSubscribe.class)) {
+            RetryableSubscribe annotation = method.getAnnotation(RetryableSubscribe.class);
+            return annotation.timeoutSeconds();
+        }
+        return 5L; // Timeout por defecto
     }
     
     /**
@@ -107,6 +179,22 @@ public class RetryableSubscriberExceptionHandler implements SubscriberExceptionH
     }
     
     /**
+     * Verifica si la ejecución de un evento fue completada (sin timeout).
+     * Esto es útil para distinguir entre un timeout y una ejecución que nunca se completó.
+     * 
+     * @param eventId ID del evento
+     * @return true si la ejecución se completó (el latch llegó a 0), false en caso contrario
+     */
+    public boolean wasExecutionCompleted(String eventId) {
+        CountDownLatch latch = executionLatches.get(eventId);
+        if (latch == null) {
+            return false;
+        }
+        // Si el latch está en 0, significa que se completó la ejecución
+        return latch.getCount() == 0;
+    }
+    
+    /**
      * Verifica si un evento fue procesado exitosamente.
      */
     public EventExecutionResult getExecutionResult(String eventId) {
@@ -119,6 +207,7 @@ public class RetryableSubscriberExceptionHandler implements SubscriberExceptionH
     public void clearResult(String eventId) {
         executionResults.remove(eventId);
         executionLatches.remove(eventId);
+        eventSubscriberMethods.remove(eventId);
     }
     
     public Map<String, EventExecutionResult> getAllResults() {

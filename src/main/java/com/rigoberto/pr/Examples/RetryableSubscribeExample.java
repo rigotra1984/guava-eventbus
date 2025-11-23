@@ -127,6 +127,7 @@ public class RetryableSubscribeExample {
     /**
      * Listener que SIEMPRE tiene éxito.
      * El evento se marca como SUCCESS en el primer intento.
+     * Usa el timeout por defecto de 5 segundos.
      */
     public static class SuccessfulOrderListener {
 
@@ -151,13 +152,14 @@ public class RetryableSubscribeExample {
     /**
      * Listener que FALLA las primeras 2 veces y luego tiene éxito.
      * Demuestra el comportamiento de reintento automático.
+     * Usa un timeout personalizado de 10 segundos.
      */
     public static class RetryablePaymentListener {
         private final AtomicInteger attemptCount = new AtomicInteger(0);
         private static final int FAIL_TIMES = 2;
 
         @Subscribe
-        @RetryableSubscribe
+        @RetryableSubscribe(timeoutSeconds = 10)  // Timeout personalizado de 10 segundos
         public void handlePayment(PaymentEvent event) {
             int attempt = attemptCount.incrementAndGet();
             
