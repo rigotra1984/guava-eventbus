@@ -29,6 +29,7 @@ Sistema de eventos asíncronos con persistencia en PostgreSQL, retry automático
 - **🚀 EventBus Asíncrono**: Basado en Google Guava EventBus para publicación/suscripción desacoplada
 - **💾 Persistencia Garantizada**: Almacenamiento de eventos en PostgreSQL antes de procesarlos
 - **🔄 Retry Automático**: Reintentos con backoff exponencial (2^n * 1000ms) en caso de fallos
+- **🎯 @RetryableSubscribe**: Anotación personalizada para controlar éxito/fallo de listeners (¡NUEVO!)
 - **⚡ Procesamiento Concurrente**: Pool configurable de workers para procesar múltiples eventos en paralelo
 - **🎯 Serialización JSON**: Eventos serializados con Jackson para máxima flexibilidad
 - **🧪 Tests Completos**: Suite de tests con Testcontainers para pruebas end-to-end
@@ -293,6 +294,52 @@ public class StoredEvent {
 ```
 
 ## 💡 Uso Detallado
+
+### 🎯 Control de Reintentos con @RetryableSubscribe (NUEVO)
+
+La anotación `@RetryableSubscribe` permite controlar cuándo un evento debe ser marcado como SUCCESS o reintentado:
+
+**Comportamiento**:
+- ✅ Si el método se ejecuta sin excepciones → evento marcado como **SUCCESS**
+- ❌ Si el método lanza una excepción → evento **reintentado** automáticamente
+
+**Ejemplo básico**:
+```java
+import com.google.common.eventbus.Subscribe;
+import com.rigoberto.pr.Annotations.RetryableSubscribe;
+
+public class PaymentListener {
+    
+    @Subscribe
+    @RetryableSubscribe  // ← El evento solo se marca como SUCCESS si no hay excepciones
+    public void processPayment(PaymentEvent event) {
+        // Si este método falla, el evento será reintentado
+        paymentGateway.charge(event.getAmount());
+    }
+}
+```
+
+**Sin @RetryableSubscribe (comportamiento tradicional)**:
+```java
+public class LogListener {
+    
+    @Subscribe  // Sin @RetryableSubscribe
+    public void logEvent(AnyEvent event) {
+        // Este listener NO reintenta en caso de error
+        // El evento se marca como SUCCESS automáticamente
+        logger.info("Event: {}", event);
+    }
+}
+```
+
+**Ventajas**:
+- ✅ Reintentos automáticos solo cuando el listener falla
+- ✅ Compatible con listeners existentes (opcional)
+- ✅ Control granular por método
+- ✅ Idempotencia requerida para métodos retryables
+
+**📖 Ver guía completa**: [`RETRYABLE_SUBSCRIBE_GUIDE.md`](RETRYABLE_SUBSCRIBE_GUIDE.md)  
+**🧪 Ver ejemplo**: [`RetryableSubscribeExample.java`](src/main/java/com/rigoberto/pr/Examples/RetryableSubscribeExample.java)
 
 ### Creando Eventos
 
