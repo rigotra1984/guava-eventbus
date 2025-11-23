@@ -29,11 +29,14 @@ Sistema de eventos asíncronos con persistencia en PostgreSQL, retry automático
 - **🚀 EventBus Asíncrono**: Basado en Google Guava EventBus para publicación/suscripción desacoplada
 - **💾 Persistencia Garantizada**: Almacenamiento de eventos en PostgreSQL antes de procesarlos
 - **🔄 Retry Automático**: Reintentos con backoff exponencial (2^n * 1000ms) en caso de fallos
-- **🎯 @RetryableSubscribe**: Anotación personalizada para controlar éxito/fallo de listeners (¡NUEVO!)
+- **🎯 @RetryableSubscribe**: Anotación personalizada para controlar éxito/fallo de listeners
+  - ⏱️ **Timeout configurable por método** con el parámetro `timeoutSeconds`
+  - 🛡️ **Detección de servidor detenido**: reintenta eventos incompletos
+  - 📊 **Compatible** con listeners existentes sin la anotación
 - **⚡ Procesamiento Concurrente**: Pool configurable de workers para procesar múltiples eventos en paralelo
 - **🎯 Serialización JSON**: Eventos serializados con Jackson para máxima flexibilidad
 - **🧪 Tests Completos**: Suite de tests con Testcontainers para pruebas end-to-end
-- **📊 Estados de Eventos**: Sistema de estados (PENDING → SUCCESS) con tracking de intentos
+- **📊 Estados de Eventos**: Sistema de estados (PENDING → SUCCESS/FAILED) con tracking de intentos
 - **🔧 Fácil Integración**: API simple con 3 métodos principales
 
 ## 📦 Instalación
@@ -83,20 +86,42 @@ EventSystem eventSystem = new EventSystem(
 
 ### 3. Crear y registrar un listener
 
+**Opción A: Con reintentos automáticos (recomendado para operaciones críticas)**
+```java
+import com.google.common.eventbus.Subscribe;
+import com.rigoberto.pr.Annotations.RetryableSubscribe;
+
+public class PaymentListener {
+    @Subscribe
+    @RetryableSubscribe(timeoutSeconds = 10)  // Timeout de 10 segundos
+    public void handlePayment(PaymentEvent event) {
+        // Si este método falla o no completa en 10 segundos, 
+        // el evento se reintenta automáticamente
+        paymentService.processPayment(event);
+    }
+}
+```
+
+**Opción B: Sin reintentos (recomendado para operaciones no críticas)**
 ```java
 import com.google.common.eventbus.Subscribe;
 
-public class MyEventListener {
-    @Subscribe
-    public void handleUserCreated(UserCreatedEvent event) {
-        System.out.println("Usuario creado: " + event.getUserId());
-        // Procesar el evento
+public class LoggingListener {
+    @Subscribe  // Sin @RetryableSubscribe
+    public void logEvent(UserCreatedEvent event) {
+        // Siempre se marca como SUCCESS, incluso si falla
+        logger.info("Usuario creado: " + event.getUserId());
     }
 }
-
-// Registrar el listener
-eventSystem.registerListener(new MyEventListener());
 ```
+
+**Registrar los listeners:**
+```java
+eventSystem.registerListener(new PaymentListener());
+eventSystem.registerListener(new LoggingListener());
+```
+
+> 📚 **Documentación completa**: Ver [RETRYABLE_SUBSCRIBE_GUIDE.md](RETRYABLE_SUBSCRIBE_GUIDE.md) para entender a fondo cómo funciona `@RetryableSubscribe`.
 
 ### 4. Publicar eventos
 
@@ -221,6 +246,7 @@ system.post(new PaymentProcessedEvent(paymentId));
 - **Pool de threads configurable** para procesamiento concurrente
 - **Deserialización inteligente** usando el campo `event_type` para reconstruir objetos
 - **Manejo de fallos** con retry y backoff exponencial
+- **Detección de servidor detenido**: Si el servidor se detiene durante la ejecución de un método con `@RetryableSubscribe`, el evento se reintenta automáticamente al reiniciar
 
 **Configuración**:
 ```java
@@ -231,6 +257,17 @@ public EventWorker(
     int concurrency  // Número de threads para procesar eventos
 )
 ```
+
+**Mecanismo de detección de servidor detenido:**
+
+El sistema usa un `CountDownLatch` para verificar si un método completó su ejecución:
+
+1. **Antes de publicar el evento**: Se crea un latch con valor 1
+2. **Cuando el método termina**: El latch baja a 0 (éxito o fallo)
+3. **Verificación**: Se espera hasta el `timeoutSeconds` configurado
+4. **Si timeout sin completar**: Se verifica si el latch está en 0
+   - **Latch = 0**: El método completó (aunque tardó más) → procesa resultado
+   - **Latch > 0**: El método NO completó (servidor detenido) → **reintenta evento**
 
 **Backoff exponencial**:
 - Intento 1: `2^1 * 1000ms = 2 segundos`
@@ -393,12 +430,15 @@ public class UserNotificationListener {
 
 ### Manejo de Errores en Listeners
 
-Si un listener lanza una excepción:
+El sistema ofrece dos estrategias de manejo de errores según tus necesidades:
+
+#### Con @RetryableSubscribe (para operaciones críticas)
 
 ```java
 @Subscribe
+@RetryableSubscribe(timeoutSeconds = 10)
 public void onOrderCreated(OrderCreatedEvent event) {
-    // Si esto falla, el evento se reintentará
+    // Si esto falla o no completa en 10 segundos, se reintenta
     PaymentResult result = paymentService.charge(event.getAmount());
     
     if (!result.isSuccess()) {
@@ -407,10 +447,38 @@ public void onOrderCreated(OrderCreatedEvent event) {
 }
 ```
 
-1. El evento permanece en estado `PENDING`
-2. Se incrementa el contador `attempts`
-3. Se programa un retry con backoff exponencial
-4. Después de `max_attempts` (default: 5), el evento deja de reintentarse
+**Comportamiento:**
+1. Si el método lanza excepción → el evento se **reintenta** con backoff exponencial
+2. Si el método no completa en el `timeoutSeconds` → el evento se **reintenta**
+3. Si el servidor se detiene durante la ejecución → el evento se **reintenta** al reiniciar
+4. Si el método completa sin excepciones → el evento se marca como **SUCCESS**
+
+#### Sin @RetryableSubscribe (para operaciones no críticas)
+
+```java
+@Subscribe
+public void onOrderCreated(OrderCreatedEvent event) {
+    // Incluso si falla, el evento se marca como SUCCESS
+    logger.info("Order created: {}", event.getOrderId());
+}
+```
+
+**Comportamiento:**
+- El evento **SIEMPRE** se marca como SUCCESS, incluso si hay excepciones
+- Útil para: logging, métricas, notificaciones no críticas
+
+#### Parámetros de @RetryableSubscribe
+
+```java
+@RetryableSubscribe(
+    timeoutSeconds = 30,        // Timeout personalizado (default: 5)
+    propagateException = true   // Propagar excepción (default: false)
+)
+```
+
+**Límite de reintentos:**
+- Después de `max_attempts` (default: 5), el evento se marca como `FAILED`
+- Los reintentos usan backoff exponencial: 2s, 4s, 8s, 16s, 32s...
 
 ### Ejemplo Completo: Sistema de Órdenes
 
@@ -618,6 +686,34 @@ int concurrency = Integer.parseInt(
 // Ajustar max_attempts por evento
 eventSystem.post(event, 10); // 10 intentos máximo
 ```
+
+### Configuración de Timeout por Método
+
+Cada listener puede tener su propio timeout configurado:
+
+```java
+@Subscribe
+@RetryableSubscribe(timeoutSeconds = 3)   // Operación rápida
+public void handleQuickTask(QuickEvent event) {
+    quickService.process(event);
+}
+
+@Subscribe
+@RetryableSubscribe(timeoutSeconds = 30)  // Operación lenta
+public void handleLongTask(LongTaskEvent event) {
+    heavyProcessingService.process(event);
+}
+```
+
+**Recomendaciones de timeout:**
+- Operaciones rápidas (< 1s): `timeoutSeconds = 3`
+- Operaciones normales (1-5s): `timeoutSeconds = 5` (default)
+- Operaciones lentas (> 5s): `timeoutSeconds = 10` o más
+- Operaciones muy lentas: `timeoutSeconds = 30` o más
+
+**¿Qué pasa si se excede el timeout?**
+- Si el método **completa después del timeout** pero **antes de la verificación**: se procesa normalmente
+- Si el método **no completa** (ej: servidor detenido): el evento se **reintenta**
 
 ## 🧪 Tests
 

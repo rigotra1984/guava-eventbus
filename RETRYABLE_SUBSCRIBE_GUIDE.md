@@ -128,12 +128,26 @@ public class PaymentListener {
 }
 ```
 
-### Ejemplo 3: Propagar excepciones (opcional)
+### Ejemplo 3: Timeout personalizado
+```java
+public class LongRunningListener {
+    
+    @Subscribe
+    @RetryableSubscribe(timeoutSeconds = 30)  // Timeout de 30 segundos
+    public void handleLongTask(LongTaskEvent event) {
+        // Este método tiene 30 segundos para completarse
+        // Si no completa en ese tiempo, se reintenta
+        heavyProcessingService.process(event);
+    }
+}
+```
+
+### Ejemplo 4: Propagar excepciones (opcional)
 ```java
 public class CriticalEventListener {
     
     @Subscribe
-    @RetryableSubscribe(propagateException = true)
+    @RetryableSubscribe(propagateException = true, timeoutSeconds = 10)
     public void handleCriticalEvent(CriticalEvent event) {
         // Si falla, además de reintentar, la excepción se propagará
         criticalService.processEvent(event);
@@ -141,7 +155,7 @@ public class CriticalEventListener {
 }
 ```
 
-### Ejemplo 4: Listener sin @RetryableSubscribe (comportamiento tradicional)
+### Ejemplo 5: Listener sin @RetryableSubscribe (comportamiento tradicional)
 ```java
 public class LogListener {
     
@@ -222,7 +236,7 @@ Si tu evento no tiene `getId()`, el sistema usará automáticamente un identific
 
 ## 🔄 Reintentos y Backoff
 
-Cuando un método con `@RetryableSubscribe` lanza una excepción:
+Cuando un método con `@RetryableSubscribe` lanza una excepción o no completa su ejecución:
 
 1. El evento **NO se marca como SUCCESS**
 2. Se incrementa el contador de intentos
@@ -235,6 +249,13 @@ Cuando un método con `@RetryableSubscribe` lanza una excepción:
 - Intento 3: 4 segundos después
 - Intento 4: 8 segundos después
 - Intento 5: 16 segundos después
+
+### Casos que activan reintentos:
+
+1. **Excepción lanzada**: El método explícitamente lanza una excepción
+2. **Timeout excedido**: El método no completa dentro del tiempo configurado en `timeoutSeconds`
+3. **Servidor detenido**: El servidor se detiene mientras el método se está ejecutando
+4. **Ejecución no completada**: Por cualquier razón, el `CountDownLatch` no llega a 0
 
 ---
 
@@ -284,6 +305,14 @@ void testFailureAndRetry() throws Exception {
 4. **Límite de Reintentos**: El número máximo de reintentos se configura al crear el evento (por defecto: 5). Después de agotarlos, el evento se marca como `FAILED`.
 
 5. **Compatibilidad**: Los listeners sin `@RetryableSubscribe` siguen funcionando como antes (se marcan como SUCCESS automáticamente).
+
+6. **Timeout Configuration**: Ajusta `timeoutSeconds` según la complejidad de tu operación:
+   - Operaciones rápidas (< 1s): `timeoutSeconds = 3`
+   - Operaciones normales (1-5s): `timeoutSeconds = 5` (por defecto)
+   - Operaciones lentas (> 5s): `timeoutSeconds = 10` o más
+   - Operaciones muy lentas: `timeoutSeconds = 30` o más
+
+7. **Detección de servidor detenido**: Si el servidor se detiene durante la ejecución, el evento se reintentará automáticamente cuando el servidor vuelva a iniciarse. Esto garantiza que no se pierdan eventos críticos.
 
 ---
 
@@ -348,3 +377,18 @@ R: El evento se marca como `FAILED` y no se vuelve a procesar.
 
 **P: ¿Puedo cambiar el número máximo de reintentos?**  
 R: Actualmente se configura al guardar el evento (por defecto: 5). Podrías extender `@RetryableSubscribe` para incluir este parámetro.
+
+**P: ¿Qué pasa si el servidor se detiene mientras procesa un evento?**  
+R: Si usas `@RetryableSubscribe`, el sistema detecta que el método no completó su ejecución y reintenta el evento cuando el servidor vuelva. Sin `@RetryableSubscribe`, se asume éxito.
+
+**P: ¿Cómo elijo el timeout correcto?**  
+R: Analiza el tiempo promedio de ejecución de tu método y agrega un margen de seguridad. Por ejemplo, si tu método tarda normalmente 2 segundos, usa `timeoutSeconds = 5`.
+
+**P: ¿Qué pasa si mi método tarda más del timeout pero completa exitosamente?**  
+R: Si el método completa después del timeout pero antes de que el sistema lo verifique, se detecta como completado y se marca como SUCCESS (si no hubo excepciones).
+
+**P: ¿El timeout se aplica a listeners sin @RetryableSubscribe?**  
+R: No, el timeout solo se aplica a métodos con `@RetryableSubscribe`. Los listeners sin esta anotación siempre se marcan como SUCCESS.
+
+**P: ¿Puedo tener diferentes timeouts para diferentes métodos?**  
+R: Sí, cada método con `@RetryableSubscribe` puede tener su propio `timeoutSeconds` configurado independientemente.
