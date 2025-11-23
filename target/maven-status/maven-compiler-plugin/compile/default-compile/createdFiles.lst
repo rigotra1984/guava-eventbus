@@ -1,5 +1,0 @@
-com/rigoberto/pr/Models/StoredEvent.class
-com/rigoberto/pr/Workers/EventWorker.class
-com/rigoberto/pr/App.class
-com/rigoberto/pr/Repositories/PostgreSQLEventRepository.class
-com/rigoberto/pr/Workers/EventSystem.class

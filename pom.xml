@@ -4,12 +4,39 @@
   <groupId>com.rigoberto.pr</groupId>
   <artifactId>eventbus</artifactId>
   <packaging>jar</packaging>
-  <version>1.0-SNAPSHOT</version>
-  <name>eventbus</name>
-  <url>http://maven.apache.org</url>
+  <version>1.0.0</version>
+  <name>EventBus</name>
+  <description>A lightweight event bus implementation with persistent storage support using PostgreSQL and Google Guava EventBus</description>
+  <url>https://github.com/rigotra1984/guava-eventbus</url>
+  
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  
+  <developers>
+    <developer>
+      <id>rigotra1984</id>
+      <name>Rigoberto</name>
+      <email>rigoberto@example.com</email>
+      <url>https://github.com/rigotra1984</url>
+    </developer>
+  </developers>
+  
+  <scm>
+    <connection>scm:git:git://github.com/rigotra1984/guava-eventbus.git</connection>
+    <developerConnection>scm:git:ssh://github.com:rigotra1984/guava-eventbus.git</developerConnection>
+    <url>https://github.com/rigotra1984/guava-eventbus/tree/main</url>
+  </scm>
+  
   <properties>
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
   </properties>
   <dependencies>
     <dependency>
@@ -23,9 +50,9 @@
       <version>42.2.8</version>
     </dependency>
     <dependency>
-      <groupId>org.json</groupId>
-      <artifactId>json</artifactId>
-      <version>20190722</version>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.15.2</version>
     </dependency>
 
     <dependency>
@@ -64,6 +91,7 @@
 
   <build>
     <plugins>
+      <!-- Surefire Plugin para tests -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
@@ -73,6 +101,53 @@
           <excludes>
             <exclude>**/*IntegrationTest.java</exclude>
           </excludes>
+        </configuration>
+      </plugin>
+      
+      <!-- Maven Source Plugin - requerido por Maven Central -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.0</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      
+      <!-- Maven Javadoc Plugin - requerido por Maven Central -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.6.3</version>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <doclint>none</doclint>
+          <source>21</source>
+        </configuration>
+      </plugin>
+      
+      <!-- Nexus Staging Plugin - para deployment a Maven Central -->
+      <plugin>
+        <groupId>org.sonatype.plugins</groupId>
+        <artifactId>nexus-staging-maven-plugin</artifactId>
+        <version>1.6.13</version>
+        <extensions>true</extensions>
+        <configuration>
+          <serverId>ossrh</serverId>
+          <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
+          <autoReleaseAfterClose>true</autoReleaseAfterClose>
         </configuration>
       </plugin>
     </plugins>
@@ -101,13 +176,41 @@
         </plugins>
       </build>
     </profile>
+    
+    <!-- Perfil para release (firma con GPG) -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <!-- Maven GPG Plugin - para firmar artefactos -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <distributionManagement>
+    <snapshotRepository>
+      <id>ossrh</id>
+      <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
     <repository>
-        <id>github</id>
-        <url>https://maven.pkg.github.com/USUARIO/REPO</url>
+      <id>ossrh</id>
+      <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
     </repository>
-</distributionManagement>
+  </distributionManagement>
 
 </project>

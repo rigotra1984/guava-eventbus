@@ -1,8 +1,10 @@
 package com.rigoberto.pr.Workers;
 
 import com.google.common.eventbus.EventBus;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 
 import com.rigoberto.pr.Models.StoredEvent;
@@ -15,19 +17,21 @@ public class EventWorker {
     private final ScheduledExecutorService scheduler;
     private final ExecutorService workers;
     private final int batchSize = 20;
+    private final ObjectMapper objectMapper;
 
     public EventWorker(PostgreSQLEventRepository repo, EventBus eventBus, int concurrency) {
         this.repo = repo;
         this.eventBus = eventBus;
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.workers = Executors.newFixedThreadPool(concurrency);
+        this.objectMapper = new ObjectMapper();
     }
 
     public void start() {
         scheduler.scheduleAtFixedRate(() -> {
             try {
                 List<StoredEvent> events = repo.fetchPendingEvents(batchSize);
-                for (var ev : events) {
+                for (StoredEvent ev : events) {
                     workers.submit(() -> processEvent(ev));
                 }
             } catch (Exception ex) {
@@ -68,8 +72,29 @@ public class EventWorker {
         }
     }
 
+    /**
+     * Deserializa el payload JSON a un objeto basándose en el tipo.
+     * 
+     * @param type El nombre completo de la clase del evento (ej: "com.example.UserCreatedEvent")
+     * @param payload El JSON string del evento
+     * @return El objeto deserializado
+     * @throws RuntimeException si hay error en la deserialización
+     */
     private Object deserializeEvent(String type, String payload) {
-        // Usa Jackson o Gson para tu caso real
-        return payload; // demo
+        try {
+            // Intenta cargar la clase del evento dinámicamente
+            Class<?> eventClass = Class.forName(type);
+            return objectMapper.readValue(payload, eventClass);
+        } catch (ClassNotFoundException e) {
+            // Si no existe la clase, deserializa como Map genérico
+            System.err.println("Clase no encontrada: " + type + ". Usando Map genérico.");
+            try {
+                return objectMapper.readValue(payload, Map.class);
+            } catch (Exception ex) {
+                throw new RuntimeException("Error al deserializar como Map: " + payload, ex);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error al deserializar evento de tipo " + type + ": " + payload, e);
+        }
     }
 }

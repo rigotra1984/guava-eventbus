@@ -3,7 +3,7 @@ package com.rigoberto.pr.Workers;
 import com.google.common.eventbus.AsyncEventBus;
 import com.google.common.eventbus.EventBus;
 import com.rigoberto.pr.Repositories.PostgreSQLEventRepository;
-import org.json.JSONObject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.concurrent.Executors;
 
@@ -12,8 +12,10 @@ public class EventSystem {
     private final EventBus eventBus;
     private final PostgreSQLEventRepository repo;
     private final EventWorker worker;
+    private final ObjectMapper objectMapper;
 
     public EventSystem(String jdbcUrl, String user, String pwd) throws Exception {
+        this.objectMapper = new ObjectMapper();
 
         this.eventBus = new AsyncEventBus(
                 "persistent-eventbus",
@@ -31,10 +33,15 @@ public class EventSystem {
         eventBus.register(listener);
     }
 
+    /**
+     * Publica un evento serializándolo a JSON y almacenándolo en la base de datos.
+     * 
+     * @param event El evento a publicar
+     * @throws Exception si hay error en la serialización o guardado
+     */
     public void post(Object event) throws Exception {
-        // Serializar usando org.json
-        JSONObject json = new JSONObject(event);
-        String payload = json.toString();
+        // Serializar usando Jackson
+        String payload = objectMapper.writeValueAsString(event);
         String type = event.getClass().getName();
         repo.saveEvent(type, payload, 5);
     }

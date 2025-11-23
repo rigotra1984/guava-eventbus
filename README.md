@@ -1,6 +1,28 @@
 # EventBus - Sistema de Eventos Persistentes
 
+[![Maven Central](https://img.shields.io/maven-central/v/com.rigoberto.pr/eventbus.svg?label=Maven%20Central)](https://search.maven.org/search?q=g:%22com.rigoberto.pr%22%20AND%20a:%22eventbus%22)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Java Version](https://img.shields.io/badge/Java-21-blue.svg)](https://www.oracle.com/java/technologies/javase/jdk21-archive-downloads.html)
+
 Sistema de eventos asíncronos con persistencia en PostgreSQL, retry automático con backoff exponencial y procesamiento concurrente.
+
+## Instalación
+
+Agrega la dependencia a tu proyecto Maven:
+
+```xml
+<dependency>
+    <groupId>com.rigoberto.pr</groupId>
+    <artifactId>eventbus</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+O si usas Gradle:
+
+```gradle
+implementation 'com.rigoberto.pr:eventbus:1.0.0'
+```
 
 ## Características
 
@@ -220,6 +242,49 @@ eventbus/
 - [ ] Dashboard de administración
 - [ ] Soporte para múltiples tipos de storage backends
 
+## Contribuir
+
+Las contribuciones son bienvenidas. Por favor:
+
+1. Fork el proyecto
+2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
+3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
+4. Push a la rama (`git push origin feature/AmazingFeature`)
+5. Abre un Pull Request
+
+## Publicación en Maven Central
+
+Para publicar este proyecto en Maven Central, consulta:
+
+- **[MAVEN_CENTRAL_DEPLOYMENT.md](MAVEN_CENTRAL_DEPLOYMENT.md)** - Guía completa paso a paso
+- **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** - Checklist detallado
+- **[deploy.sh](deploy.sh)** - Script de ayuda para deployment
+
+### Resumen rápido
+
+```bash
+# 1. Configurar GPG y credenciales de Sonatype (solo una vez)
+# Ver MAVEN_CENTRAL_DEPLOYMENT.md para detalles
+
+# 2. Actualizar versión en pom.xml (sin -SNAPSHOT)
+
+# 3. Desplegar
+./deploy.sh
+
+# 4. Validar y liberar en https://s01.oss.sonatype.org/
+```
+
 ## Licencia
 
-Este proyecto es parte de un sistema de demostración educativa.
+Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+
+## Autor
+
+**Rigoberto** - [rigotra1984](https://github.com/rigotra1984)
+
+## Agradecimientos
+
+- Google Guava por el excelente EventBus
+- PostgreSQL por la robusta base de datos
+- Testcontainers por facilitar los tests de integración
+
