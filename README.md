@@ -4,11 +4,42 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java Version](https://img.shields.io/badge/Java-21-blue.svg)](https://www.oracle.com/java/technologies/javase/jdk21-archive-downloads.html)
 
-Sistema de eventos asíncronos con persistencia en PostgreSQL, retry automático con backoff exponencial y procesamiento concurrente.
+Sistema de eventos asíncronos con persistencia en PostgreSQL, retry automático con backoff exponencial y procesamiento concurrente. Perfecto para arquitecturas event-driven que requieren garantías de entrega y procesamiento robusto de eventos.
 
-## Instalación
+## 📋 Tabla de Contenidos
 
-Agrega la dependencia a tu proyecto Maven:
+- [Características](#-características)
+- [Instalación](#-instalación)
+- [Inicio Rápido](#-inicio-rápido)
+- [Arquitectura](#-arquitectura)
+- [Componentes](#-componentes)
+- [Uso Detallado](#-uso-detallado)
+- [Base de Datos](#-base-de-datos)
+- [Configuración](#-configuración)
+- [Tests](#-tests)
+- [Build y Deployment](#-build-y-deployment)
+- [Estructura del Proyecto](#-estructura-del-proyecto)
+- [Dependencias](#-dependencias)
+- [Roadmap](#-roadmap)
+- [Contribuir](#-contribuir)
+- [Licencia](#-licencia)
+
+## ✨ Características
+
+- **🚀 EventBus Asíncrono**: Basado en Google Guava EventBus para publicación/suscripción desacoplada
+- **💾 Persistencia Garantizada**: Almacenamiento de eventos en PostgreSQL antes de procesarlos
+- **🔄 Retry Automático**: Reintentos con backoff exponencial (2^n * 1000ms) en caso de fallos
+- **⚡ Procesamiento Concurrente**: Pool configurable de workers para procesar múltiples eventos en paralelo
+- **🎯 Serialización JSON**: Eventos serializados con Jackson para máxima flexibilidad
+- **🧪 Tests Completos**: Suite de tests con Testcontainers para pruebas end-to-end
+- **📊 Estados de Eventos**: Sistema de estados (PENDING → SUCCESS) con tracking de intentos
+- **🔧 Fácil Integración**: API simple con 3 métodos principales
+
+## 📦 Instalación
+
+### Maven
+
+Agrega la dependencia a tu `pom.xml`:
 
 ```xml
 <dependency>
@@ -18,72 +49,13 @@ Agrega la dependencia a tu proyecto Maven:
 </dependency>
 ```
 
-O si usas Gradle:
+### Gradle
 
 ```gradle
 implementation 'com.rigoberto.pr:eventbus:1.0.0'
 ```
 
-## Características
-
-- **EventBus asíncrono**: Basado en Guava EventBus para publicación y suscripción de eventos
-- **Persistencia**: Almacenamiento de eventos en PostgreSQL para garantizar no perder eventos
-- **Retry automático**: Reintentos con backoff exponencial en caso de fallos
-- **Procesamiento concurrente**: Pool de workers para procesar múltiples eventos simultáneamente
-- **Tests de integración**: Suite completa de tests con Testcontainers
-
-## Arquitectura
-
-```
-┌─────────────┐
-│  EventSystem │
-└──────┬──────┘
-       │
-       ├──────────────┐
-       ▼              ▼
-┌─────────────┐  ┌────────────────┐
-│  EventBus   │  │ PostgreSQL Repo │
-│  (Guava)    │  │                │
-└──────┬──────┘  └────────┬───────┘
-       │                  │
-       │         ┌────────▼────────┐
-       │         │   PostgreSQL    │
-       │         │   (events table)│
-       │         └────────▲────────┘
-       │                  │
-       │         ┌────────┴────────┐
-       └─────────►  EventWorker    │
-                 │  (polling +     │
-                 │   processing)   │
-                 └─────────────────┘
-```
-
-## Componentes
-
-### EventSystem
-Punto de entrada principal que coordina el EventBus y el EventWorker.
-
-```java
-EventSystem eventSystem = new EventSystem(jdbcUrl, user, password);
-eventSystem.registerListener(myListener);
-eventSystem.post(myEvent);
-```
-
-### EventWorker
-Worker que:
-1. Hace polling cada segundo de eventos pendientes
-2. Procesa eventos de forma concurrente
-3. Maneja reintentos con backoff exponencial
-4. Marca eventos como SUCCESS o actualiza el contador de intentos
-
-### PostgreSQLEventRepository
-Maneja la persistencia de eventos:
-- `saveEvent()`: Guarda nuevos eventos
-- `fetchPendingEvents()`: Obtiene eventos pendientes para procesar
-- `markAsSuccess()`: Marca eventos procesados exitosamente
-- `markAsFailed()`: Actualiza intentos y programa próximo reintento
-
-## Uso
+## 🚀 Inicio Rápido
 
 ### 1. Configurar PostgreSQL
 
@@ -99,6 +71,8 @@ docker run -d --name postgres \
 ### 2. Inicializar el sistema
 
 ```java
+import com.rigoberto.pr.Workers.EventSystem;
+
 EventSystem eventSystem = new EventSystem(
     "jdbc:postgresql://localhost:5432/eventdb",
     "eventuser",
@@ -106,30 +80,191 @@ EventSystem eventSystem = new EventSystem(
 );
 ```
 
-### 3. Crear y registrar listeners
+### 3. Crear y registrar un listener
 
 ```java
+import com.google.common.eventbus.Subscribe;
+
 public class MyEventListener {
     @Subscribe
-    public void handleMyEvent(MyEvent event) {
-        System.out.println("Evento recibido: " + event);
+    public void handleUserCreated(UserCreatedEvent event) {
+        System.out.println("Usuario creado: " + event.getUserId());
+        // Procesar el evento
     }
 }
 
+// Registrar el listener
 eventSystem.registerListener(new MyEventListener());
 ```
 
 ### 4. Publicar eventos
 
 ```java
-MyEvent event = new MyEvent("data");
+UserCreatedEvent event = new UserCreatedEvent("user123", "john@example.com");
 eventSystem.post(event);
 ```
 
-## Schema de Base de Datos
+El evento se serializa automáticamente a JSON, se persiste en PostgreSQL y se procesa asíncronamente.
 
+## 🏗️ Arquitectura
+
+```
+┌─────────────────────┐
+│   Application       │
+│   (Your Code)       │
+└──────────┬──────────┘
+           │
+           │ post(event)
+           ▼
+┌─────────────────────┐
+│    EventSystem      │  ← Punto de entrada principal
+│  - registerListener │
+│  - post(event)      │
+└──────┬──────────┬───┘
+       │          │
+       │          └──────────────────┐
+       │                             │
+       ▼                             ▼
+┌─────────────────┐    ┌─────────────────────────┐
+│   EventBus      │    │ PostgreSQLEventRepo     │
+│   (Guava)       │    │  - saveEvent()          │
+│  - Async        │    │  - fetchPending()       │
+│  - Concurrent   │    │  - markAsSuccess()      │
+└────────┬────────┘    │  - markAsFailed()       │
+         │             └───────────┬─────────────┘
+         │                         │
+         │                         │ JDBC
+         │                         ▼
+         │             ┌──────────────────────────┐
+         │             │      PostgreSQL          │
+         │             │    events table          │
+         │             │  - id, type, payload     │
+         │             │  - status, attempts      │
+         │             │  - next_attempt_at       │
+         │             └───────────▲──────────────┘
+         │                         │
+         │                         │ polling (1s)
+         │                         │
+         │             ┌───────────┴──────────────┐
+         └─────────────►    EventWorker           │
+                       │  - Polling loop          │
+                       │  - Concurrent processing │
+                       │  - Retry con backoff     │
+                       └──────────────────────────┘
+```
+
+### Flujo de Trabajo
+
+1. **Publicación**: Tu aplicación llama a `eventSystem.post(event)`
+2. **Serialización**: El evento se serializa a JSON usando Jackson
+3. **Persistencia**: Se guarda en PostgreSQL con estado `PENDING`
+4. **Polling**: EventWorker hace polling cada segundo buscando eventos pendientes
+5. **Procesamiento**: Los eventos se procesan concurrentemente en un pool de threads
+6. **Delivery**: Se deserializa el evento y se publica en el EventBus de Guava
+7. **Listeners**: Los listeners registrados reciben el evento de forma asíncrona
+8. **Resultado**:
+   - ✅ **Éxito**: Se marca como `SUCCESS`
+   - ❌ **Fallo**: Se incrementa `attempts` y se programa retry con backoff exponencial
+
+## 🔧 Componentes
+
+### EventSystem
+
+**Descripción**: Punto de entrada principal que orquesta todo el sistema.
+
+**Responsabilidades**:
+- Inicializar el EventBus asíncrono
+- Crear la conexión con PostgreSQL
+- Iniciar el EventWorker
+- Proporcionar la API pública
+
+**API**:
+```java
+public class EventSystem {
+    // Constructor: inicializa todo el sistema
+    public EventSystem(String jdbcUrl, String user, String pwd) throws Exception
+    
+    // Registra un listener para recibir eventos
+    public void registerListener(Object listener)
+    
+    // Publica un evento (serializa, persiste y procesa)
+    public void post(Object event) throws Exception
+}
+```
+
+**Ejemplo completo**:
+```java
+EventSystem system = new EventSystem(
+    "jdbc:postgresql://localhost:5432/eventdb",
+    "user",
+    "password"
+);
+
+// Registrar múltiples listeners
+system.registerListener(new EmailNotificationListener());
+system.registerListener(new AuditLogger());
+system.registerListener(new MetricsCollector());
+
+// Publicar eventos
+system.post(new OrderCreatedEvent(orderId, amount));
+system.post(new PaymentProcessedEvent(paymentId));
+```
+
+### EventWorker
+
+**Descripción**: Worker que hace polling de eventos pendientes y los procesa concurrentemente.
+
+**Características**:
+- **Polling cada 1 segundo** de eventos con `status='PENDING'` y `next_attempt_at <= NOW()`
+- **Procesamiento en batch** de hasta 20 eventos por iteración
+- **Pool de threads configurable** para procesamiento concurrente
+- **Deserialización inteligente** usando el campo `event_type` para reconstruir objetos
+- **Manejo de fallos** con retry y backoff exponencial
+
+**Configuración**:
+```java
+// Constructor interno (usado por EventSystem)
+public EventWorker(
+    PostgreSQLEventRepository repo,
+    EventBus eventBus,
+    int concurrency  // Número de threads para procesar eventos
+)
+```
+
+**Backoff exponencial**:
+- Intento 1: `2^1 * 1000ms = 2 segundos`
+- Intento 2: `2^2 * 1000ms = 4 segundos`
+- Intento 3: `2^3 * 1000ms = 8 segundos`
+- Intento 4: `2^4 * 1000ms = 16 segundos`
+- Intento 5: `2^5 * 1000ms = 32 segundos`
+
+### PostgreSQLEventRepository
+
+**Descripción**: Capa de persistencia que maneja todas las operaciones de base de datos.
+
+**API**:
+```java
+public class PostgreSQLEventRepository {
+    // Constructor: crea la conexión e inicializa el schema
+    public PostgreSQLEventRepository(String jdbcUrl, String user, String password)
+    
+    // Guarda un nuevo evento
+    public void saveEvent(String eventType, String payload, int maxAttempts)
+    
+    // Obtiene eventos pendientes para procesar
+    public List<StoredEvent> fetchPendingEvents(int limit)
+    
+    // Marca un evento como procesado exitosamente
+    public void markAsSuccess(long id)
+    
+    // Incrementa intentos y programa próximo retry
+    public void markAsFailed(long id, int attempts, long backoffMs)
+}
+```
+
+**Schema auto-creado**:
 ```sql
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
     id BIGSERIAL PRIMARY KEY,
     event_type VARCHAR(255) NOT NULL,
     payload TEXT NOT NULL,
@@ -141,36 +276,315 @@ CREATE TABLE events (
 );
 ```
 
-### Estados de eventos
+### StoredEvent
 
-- **PENDING**: Evento esperando ser procesado
-- **SUCCESS**: Evento procesado exitosamente
+**Descripción**: Modelo de datos que representa un evento persistido.
 
-### Reintentos
-
-- Backoff exponencial: `2^attempt * 1000ms`
-- Máximo de intentos configurable (default: 5)
-- Después del máximo de intentos, el evento permanece marcado con `attempts >= max_attempts`
-
-## Build y Tests
-
-### Build del proyecto
-
-```bash
-mvn clean package
+**Estructura**:
+```java
+public class StoredEvent {
+    private Long id;              // ID único del evento
+    private String type;          // Nombre completo de la clase (ej: "com.example.UserCreatedEvent")
+    private String payload;       // JSON serializado del evento
+    private String status;        // PENDING | SUCCESS
+    private int attempts;         // Número de intentos realizados
+    private int maxAttempts;      // Máximo de intentos permitidos
+}
 ```
 
-### Tests unitarios
+## 💡 Uso Detallado
+
+### Creando Eventos
+
+Los eventos pueden ser cualquier POJO serializable:
+
+```java
+public class UserCreatedEvent {
+    private String userId;
+    private String email;
+    private String name;
+    private long timestamp;
+    
+    // Constructor, getters, setters
+    public UserCreatedEvent(String userId, String email, String name) {
+        this.userId = userId;
+        this.email = email;
+        this.name = name;
+        this.timestamp = System.currentTimeMillis();
+    }
+}
+```
+
+### Creando Listeners
+
+Los listeners usan la anotación `@Subscribe` de Guava:
+
+```java
+import com.google.common.eventbus.Subscribe;
+
+public class UserNotificationListener {
+    
+    @Subscribe
+    public void onUserCreated(UserCreatedEvent event) {
+        // Enviar email de bienvenida
+        sendWelcomeEmail(event.getEmail(), event.getName());
+    }
+    
+    @Subscribe
+    public void onPasswordChanged(PasswordChangedEvent event) {
+        // Enviar notificación de seguridad
+        sendSecurityAlert(event.getUserId());
+    }
+}
+```
+
+**Características de los listeners**:
+- Pueden tener múltiples métodos `@Subscribe`
+- Cada método puede escuchar un tipo de evento diferente
+- El procesamiento es asíncrono
+- Los listeners se ejecutan en threads separados
+
+### Manejo de Errores en Listeners
+
+Si un listener lanza una excepción:
+
+```java
+@Subscribe
+public void onOrderCreated(OrderCreatedEvent event) {
+    // Si esto falla, el evento se reintentará
+    PaymentResult result = paymentService.charge(event.getAmount());
+    
+    if (!result.isSuccess()) {
+        throw new PaymentFailedException("Payment failed: " + result.getError());
+    }
+}
+```
+
+1. El evento permanece en estado `PENDING`
+2. Se incrementa el contador `attempts`
+3. Se programa un retry con backoff exponencial
+4. Después de `max_attempts` (default: 5), el evento deja de reintentarse
+
+### Ejemplo Completo: Sistema de Órdenes
+
+```java
+// 1. Definir eventos
+public class OrderCreatedEvent {
+    private String orderId;
+    private BigDecimal amount;
+    private String customerId;
+    // constructor, getters
+}
+
+public class PaymentProcessedEvent {
+    private String orderId;
+    private String paymentId;
+    private boolean success;
+    // constructor, getters
+}
+
+// 2. Crear listeners
+public class OrderEventListeners {
+    
+    @Subscribe
+    public void onOrderCreated(OrderCreatedEvent event) {
+        // Procesar pago
+        log.info("Processing payment for order: {}", event.getOrderId());
+        paymentService.processPayment(event.getOrderId(), event.getAmount());
+    }
+    
+    @Subscribe
+    public void onPaymentProcessed(PaymentProcessedEvent event) {
+        if (event.isSuccess()) {
+            // Enviar confirmación
+            emailService.sendOrderConfirmation(event.getOrderId());
+            // Actualizar inventario
+            inventoryService.reserveItems(event.getOrderId());
+        } else {
+            // Manejar pago fallido
+            notificationService.notifyPaymentFailure(event.getOrderId());
+        }
+    }
+}
+
+// 3. Inicializar y usar
+public class OrderService {
+    private final EventSystem eventSystem;
+    
+    public OrderService() throws Exception {
+        this.eventSystem = new EventSystem(
+            System.getenv("DB_URL"),
+            System.getenv("DB_USER"),
+            System.getenv("DB_PASSWORD")
+        );
+        
+        // Registrar listeners
+        eventSystem.registerListener(new OrderEventListeners());
+    }
+    
+    public void createOrder(Order order) throws Exception {
+        // Guardar orden en DB
+        orderRepository.save(order);
+        
+        // Publicar evento (persistido y procesado asíncronamente)
+        eventSystem.post(new OrderCreatedEvent(
+            order.getId(),
+            order.getAmount(),
+            order.getCustomerId()
+        ));
+    }
+}
+```
+
+## 🗄️ Base de Datos
+
+### Schema
+
+La tabla `events` se crea automáticamente al inicializar el sistema:
+
+```sql
+CREATE TABLE IF NOT EXISTS events (
+    id BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(255) NOT NULL,
+    payload TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    attempts INT NOT NULL DEFAULT 0,
+    max_attempts INT NOT NULL DEFAULT 5,
+    next_attempt_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### Campos
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | BIGSERIAL | ID único auto-incremental |
+| `event_type` | VARCHAR(255) | Nombre completo de la clase del evento |
+| `payload` | TEXT | JSON serializado del evento |
+| `status` | VARCHAR(20) | Estado: `PENDING` o `SUCCESS` |
+| `attempts` | INT | Número de intentos de procesamiento |
+| `max_attempts` | INT | Máximo de intentos permitidos (default: 5) |
+| `next_attempt_at` | TIMESTAMP | Momento del próximo intento |
+| `created_at` | TIMESTAMP | Momento de creación del evento |
+
+### Estados de Eventos
+
+```
+┌─────────┐
+│ PENDING │ ← Estado inicial al publicar un evento
+└────┬────┘
+     │
+     │  EventWorker polling
+     ▼
+┌─────────────┐
+│ Processing  │ (no persiste, solo en memoria)
+└──────┬──────┘
+       │
+       ├── ✅ Success ──────► ┌─────────┐
+       │                      │ SUCCESS │ (permanente)
+       │                      └─────────┘
+       │
+       └── ❌ Failure ──────► ┌─────────┐
+                              │ PENDING │ (retry con backoff)
+                              └─────────┘
+```
+
+### Consultas Útiles
+
+**Ver eventos pendientes**:
+```sql
+SELECT id, event_type, attempts, max_attempts, next_attempt_at 
+FROM events 
+WHERE status = 'PENDING'
+ORDER BY next_attempt_at;
+```
+
+**Ver eventos que fallaron múltiples veces**:
+```sql
+SELECT id, event_type, attempts, max_attempts, created_at
+FROM events 
+WHERE attempts >= 3 AND status = 'PENDING'
+ORDER BY attempts DESC;
+```
+
+**Ver eventos que excedieron máximo de intentos**:
+```sql
+SELECT id, event_type, attempts, max_attempts, created_at, payload
+FROM events 
+WHERE attempts >= max_attempts
+ORDER BY created_at DESC;
+```
+
+**Estadísticas de eventos**:
+```sql
+SELECT 
+    status,
+    COUNT(*) as count,
+    AVG(attempts) as avg_attempts
+FROM events
+GROUP BY status;
+```
+
+### Índices Recomendados (Producción)
+
+```sql
+-- Para mejorar el polling de eventos pendientes
+CREATE INDEX idx_events_pending 
+ON events(status, next_attempt_at) 
+WHERE status = 'PENDING';
+
+-- Para consultas por tipo de evento
+CREATE INDEX idx_events_type 
+ON events(event_type);
+
+-- Para consultas temporales
+CREATE INDEX idx_events_created 
+ON events(created_at DESC);
+```
+
+## ⚙️ Configuración
+
+### Variables de Entorno
+
+```bash
+# Database
+export DB_URL="jdbc:postgresql://localhost:5432/eventdb"
+export DB_USER="eventuser"
+export DB_PASSWORD="eventpass"
+
+# Worker Configuration
+export WORKER_CONCURRENCY=5        # Threads para procesamiento
+export EVENT_BATCH_SIZE=20         # Eventos por iteración
+export POLLING_INTERVAL_MS=1000    # Intervalo de polling
+export MAX_RETRY_ATTEMPTS=5        # Máximo de reintentos
+```
+
+### Personalización
+
+```java
+// Ajustar concurrencia según carga
+int concurrency = Integer.parseInt(
+    System.getenv().getOrDefault("WORKER_CONCURRENCY", "5")
+);
+
+// Ajustar max_attempts por evento
+eventSystem.post(event, 10); // 10 intentos máximo
+```
+
+## 🧪 Tests
+
+### Tests Unitarios
 
 ```bash
 mvn test
 ```
 
-### Tests de integración
+### Tests de Integración
 
-Ver [INTEGRATION_TESTS.md](INTEGRATION_TESTS.md) para instrucciones detalladas.
+El proyecto incluye tests de integración completos usando Testcontainers.
 
-**Opción 1: Con Testcontainers (requiere Docker)**
+**Opción 1: Con Testcontainers (Recomendado)**
 ```bash
 mvn test -Pintegration-tests
 ```
@@ -190,7 +604,8 @@ docker run -d --name test-postgres \
   -p 5432:5432 \
   postgres:15-alpine
 
-# 2. Habilitar el test (remover @Disabled en EventSystemManualTest)
+# 2. Habilitar el test manual
+# Remover @Disabled en EventSystemManualTest.java
 
 # 3. Ejecutar tests
 mvn test -Dtest=EventSystemManualTest
@@ -199,92 +614,247 @@ mvn test -Dtest=EventSystemManualTest
 docker stop test-postgres && docker rm test-postgres
 ```
 
-## Dependencias
+Ver [INTEGRATION_TESTS.md](INTEGRATION_TESTS.md) para más detalles.
 
-- **Guava 23.0**: Para el EventBus asíncrono
-- **PostgreSQL JDBC 42.2.8**: Driver de base de datos
-- **org.json 20190722**: Serialización de eventos
-- **JUnit Jupiter 5.10.0**: Tests (scope: test)
-- **Testcontainers 1.19.1**: Tests de integración (scope: test)
+### Estructura de Tests
 
-## Estructura del Proyecto
+```
+src/test/java/com/rigoberto/pr/Workers/
+├── EventSystemIntegrationTest.java  # Tests con Testcontainers
+└── EventSystemManualTest.java       # Tests manuales con PostgreSQL externo
+```
+
+## 🔨 Build y Deployment
+
+### Build Local
+
+```bash
+# Compilar sin firmar
+mvn clean package
+
+# Verificar con tests
+mvn clean verify
+
+# Tests de integración
+./run-integration-tests.sh
+```
+
+### Publicación en Maven Central
+
+Ver documentación completa:
+- [MAVEN_CENTRAL_DEPLOYMENT.md](MAVEN_CENTRAL_DEPLOYMENT.md) - Guía paso a paso
+- [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - Checklist detallado
+- [QUICK_START.md](QUICK_START.md) - Comandos rápidos
+
+**Resumen rápido**:
+
+```bash
+# 1. Preparación (una sola vez)
+gpg --gen-key
+gpg --keyserver keyserver.ubuntu.com --send-keys YOUR_KEY_ID
+
+# Configurar ~/.m2/settings.xml con credenciales de Sonatype
+
+# 2. Actualizar versión en pom.xml (sin -SNAPSHOT)
+
+# 3. Desplegar con script interactivo
+./deploy.sh
+# Selecciona opción 2 (Release)
+
+# O comando directo
+mvn clean deploy -P release
+
+# 4. Validar y liberar en https://s01.oss.sonatype.org/
+# Staging Repositories → Close → Release
+```
+
+### Perfiles Maven
+
+- **`default`**: Build local sin firmar
+- **`release`**: Build con firma GPG y deployment a Maven Central
+- **`integration-tests`**: Ejecuta tests de integración con Testcontainers
+
+## 📁 Estructura del Proyecto
 
 ```
 eventbus/
 ├── src/
-│   ├── main/java/com/rigoberto/pr/
-│   │   ├── App.java
-│   │   ├── Models/
-│   │   │   └── StoredEvent.java
-│   │   ├── Repositories/
-│   │   │   └── PostgreSQLEventRepository.java
-│   │   └── Workers/
-│   │       ├── EventSystem.java
-│   │       └── EventWorker.java
-│   └── test/java/com/rigoberto/pr/
-│       ├── AppTest.java
-│       └── Workers/
-│           ├── EventSystemIntegrationTest.java
-│           └── EventSystemManualTest.java
-├── pom.xml
-├── INTEGRATION_TESTS.md
-├── README.md
-└── run-integration-tests.sh
+│   ├── main/
+│   │   └── java/com/rigoberto/pr/
+│   │       ├── Models/
+│   │       │   └── StoredEvent.java           # Modelo de evento persistido
+│   │       ├── Repositories/
+│   │       │   └── PostgreSQLEventRepository.java  # Capa de persistencia
+│   │       └── Workers/
+│   │           ├── EventSystem.java           # API principal
+│   │           └── EventWorker.java           # Worker de procesamiento
+│   └── test/
+│       └── java/com/rigoberto/pr/Workers/
+│           ├── EventSystemIntegrationTest.java    # Tests con Testcontainers
+│           └── EventSystemManualTest.java         # Tests manuales
+├── pom.xml                                    # Configuración Maven
+├── README.md                                  # Esta documentación
+├── QUICK_START.md                             # Guía rápida
+├── INTEGRATION_TESTS.md                       # Guía de tests
+├── MAVEN_CENTRAL_DEPLOYMENT.md                # Guía de deployment
+├── DEPLOYMENT_CHECKLIST.md                    # Checklist de deployment
+├── MAVEN_CENTRAL_READY.md                     # Estado de deployment
+├── CONFIGURATION_EXAMPLES.md                  # Ejemplos de configuración
+├── LICENSE                                    # Licencia MIT
+├── deploy.sh                                  # Script de deployment
+└── run-integration-tests.sh                   # Script de tests
 ```
 
-## Mejoras Futuras
+### Descripción de Componentes
 
-- [ ] Dead Letter Queue para eventos que exceden max_attempts
-- [ ] Métricas y monitoreo (eventos procesados, tasa de error, latencia)
-- [ ] Soporte para prioridades de eventos
-- [ ] Particionamiento de tabla events por fecha
-- [ ] API REST para consultar estado de eventos
-- [ ] Dashboard de administración
-- [ ] Soporte para múltiples tipos de storage backends
+**Models**:
+- `StoredEvent.java`: POJO que representa un evento en la base de datos
 
-## Contribuir
+**Repositories**:
+- `PostgreSQLEventRepository.java`: Maneja todas las operaciones CRUD de eventos
 
-Las contribuciones son bienvenidas. Por favor:
+**Workers**:
+- `EventSystem.java`: Fachada principal, inicializa y coordina componentes
+- `EventWorker.java`: Polling loop que procesa eventos asíncronamente
 
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
+## 📚 Dependencias
 
-## Publicación en Maven Central
+| Dependencia | Versión | Propósito |
+|-------------|---------|-----------|
+| [Google Guava](https://github.com/google/guava) | 23.0 | EventBus asíncrono |
+| [PostgreSQL JDBC](https://jdbc.postgresql.org/) | 42.2.8 | Driver de base de datos |
+| [Jackson Databind](https://github.com/FasterXML/jackson-databind) | 2.15.2 | Serialización JSON |
+| [JUnit Jupiter](https://junit.org/junit5/) | 5.10.0 | Framework de tests |
+| [Testcontainers](https://www.testcontainers.org/) | 1.19.1 | Tests de integración |
 
-Para publicar este proyecto en Maven Central, consulta:
-
-- **[MAVEN_CENTRAL_DEPLOYMENT.md](MAVEN_CENTRAL_DEPLOYMENT.md)** - Guía completa paso a paso
-- **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** - Checklist detallado
-- **[deploy.sh](deploy.sh)** - Script de ayuda para deployment
-
-### Resumen rápido
+### Actualizar Dependencias
 
 ```bash
-# 1. Configurar GPG y credenciales de Sonatype (solo una vez)
-# Ver MAVEN_CENTRAL_DEPLOYMENT.md para detalles
+# Ver dependencias desactualizadas
+mvn versions:display-dependency-updates
 
-# 2. Actualizar versión en pom.xml (sin -SNAPSHOT)
-
-# 3. Desplegar
-./deploy.sh
-
-# 4. Validar y liberar en https://s01.oss.sonatype.org/
+# Actualizar a versiones específicas
+mvn versions:use-latest-versions
 ```
 
-## Licencia
+## 🗺️ Roadmap
 
-Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+### v1.1.0 (Próximo)
+- [ ] Dead Letter Queue (DLQ) para eventos que exceden max_attempts
+- [ ] Métricas con Micrometer (eventos procesados, tasa de error, latencia)
+- [ ] Health checks y endpoints de monitoreo
 
-## Autor
+### v1.2.0
+- [ ] Soporte para prioridades de eventos (HIGH, NORMAL, LOW)
+- [ ] Filtros y interceptores de eventos
+- [ ] Soporte para transacciones distribuidas (saga pattern)
 
-**Rigoberto** - [rigotra1984](https://github.com/rigotra1984)
+### v2.0.0
+- [ ] Soporte para múltiples storage backends (MongoDB, Redis, etc.)
+- [ ] API REST para gestión de eventos
+- [ ] Dashboard web de administración
+- [ ] Particionamiento de tabla events por fecha
+- [ ] Soporte para event sourcing completo
 
-## Agradecimientos
+### Ideas Futuras
+- [ ] Integración con Kafka para eventos de alto volumen
+- [ ] Soporte para eventos scheduled (cron)
+- [ ] Webhook support para eventos externos
+- [ ] GraphQL API para consultas de eventos
 
-- Google Guava por el excelente EventBus
-- PostgreSQL por la robusta base de datos
-- Testcontainers por facilitar los tests de integración
+## 🤝 Contribuir
+
+¡Las contribuciones son bienvenidas! Por favor sigue estos pasos:
+
+1. **Fork el proyecto**
+   ```bash
+   git clone https://github.com/rigotra1984/guava-eventbus.git
+   cd guava-eventbus/eventbus
+   ```
+
+2. **Crea una rama para tu feature**
+   ```bash
+   git checkout -b feature/amazing-feature
+   ```
+
+3. **Realiza tus cambios y tests**
+   ```bash
+   # Asegúrate de que pasan todos los tests
+   mvn clean verify
+   ./run-integration-tests.sh
+   ```
+
+4. **Commit con mensajes descriptivos**
+   ```bash
+   git commit -m "feat: Add amazing feature"
+   ```
+
+5. **Push a tu fork**
+   ```bash
+   git push origin feature/amazing-feature
+   ```
+
+6. **Abre un Pull Request**
+
+### Guías de Contribución
+
+- Sigue las convenciones de código Java
+- Incluye tests para nuevas funcionalidades
+- Actualiza la documentación según sea necesario
+- Usa [Conventional Commits](https://www.conventionalcommits.org/)
+
+### Reportar Bugs
+
+Abre un issue con:
+- Descripción clara del problema
+- Pasos para reproducirlo
+- Comportamiento esperado vs actual
+- Versión de Java, PostgreSQL y librería
+- Stack trace si aplica
+
+## 📄 Licencia
+
+Este proyecto está licenciado bajo la **MIT License** - ver el archivo [LICENSE](LICENSE) para más detalles.
+
+```
+MIT License
+
+Copyright (c) 2025 Rigoberto
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+```
+
+## 👨‍💻 Autor
+
+**Rigoberto**
+- GitHub: [@rigotra1984](https://github.com/rigotra1984)
+- Repository: [guava-eventbus](https://github.com/rigotra1984/guava-eventbus)
+
+## 🙏 Agradecimientos
+
+- **Google Guava** - Por proporcionar un excelente EventBus asíncrono
+- **PostgreSQL** - Por la robusta base de datos
+- **Testcontainers** - Por facilitar los tests de integración
+- **Jackson** - Por la serialización JSON eficiente
+- **Maven Community** - Por las herramientas de build y deployment
+
+---
+
+<div align="center">
+
+**⭐ Si este proyecto te resulta útil, considera darle una estrella en GitHub ⭐**
+
+[Reportar Bug](https://github.com/rigotra1984/guava-eventbus/issues) • 
+[Solicitar Feature](https://github.com/rigotra1984/guava-eventbus/issues) • 
+[Contribuir](https://github.com/rigotra1984/guava-eventbus/pulls)
+
+</div>
 
